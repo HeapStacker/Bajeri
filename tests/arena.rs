@@ -25,6 +25,17 @@ fn public_api_inserts_reads_updates_and_removes() {
 }
 
 #[test]
+fn an_id_from_one_arena_is_accepted_by_another() {
+    let mut names = Arena::new();
+    let mut numbers = Arena::new();
+    let name = names.insert("wolf");
+    numbers.insert(7);
+
+    assert_eq!(names.get(name), Some(&"wolf"));
+    assert_eq!(numbers.get(name), Some(&7));
+}
+
+#[test]
 fn with_capacity_and_a_second_remove_use_the_public_api() {
     let mut arena = Arena::with_capacity(2);
     let id = arena.insert(5);

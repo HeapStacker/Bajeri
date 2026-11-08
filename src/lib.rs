@@ -1,12 +1,10 @@
-//! Compact generational arena: store values and refer to them with stable, typed ids.
+//! Compact generational arena: store values and refer to them with stable ids.
 //!
 //! An [`Arena`] owns values of one type. [`Arena::insert`] returns an [`ArenaId`] that resolves
 //! only while that value is still stored. [`Arena::remove`] hands the value back and frees the
 //! slot. A later insert may reuse the slot, but the removed id does not resolve to the new value.
 //!
 //! Start with [`Arena::new`].
-
-use std::marker::PhantomData;
 
 /// Handle for one value stored in an [`Arena`].
 ///
@@ -17,17 +15,17 @@ use std::marker::PhantomData;
 ///
 /// The same index can be reused after removal. The generation is what makes the old id fail and
 /// the new id succeed. The id does not borrow the arena, so it can be copied and stored elsewhere.
-/// It is tied to `T`, which means an id from an `Arena<T>` cannot be passed to an `Arena<U>`.
+/// It is not tied to the stored type: the same `ArenaId` can be passed to any [`Arena`]. It
+/// resolves only when that arena's slot at `index` is still occupied by `generation`.
 ///
 /// Construct an id only through [`Arena::insert`]. `ArenaId` is [`Copy`] and [`Clone`].
 #[derive(Clone, Copy)]
-pub struct ArenaId<T> {
+pub struct ArenaId {
     index: usize,
     generation: u64,
-    _marker: PhantomData<T>,
 }
 
-impl<T> ArenaId<T> {
+impl ArenaId {
     /// Returns the slot index stored in this id.
     ///
     /// The index identifies a slot, not a live value. After removal, a new value can receive an
@@ -150,7 +148,7 @@ impl<T> Arena<T> {
     /// assert_eq!(arena.get(id), Some(&"alpha"));
     /// assert_eq!(arena.len(), 1);
     /// ```
-    pub fn insert(&mut self, data: T) -> ArenaId<T> {
+    pub fn insert(&mut self, data: T) -> ArenaId {
         let (index, generation) = if let Some(free_idx) = self.free_head {
             let (next_free, stored_gen) = match self.entries[free_idx] {
                 Entry::Free {
@@ -179,11 +177,7 @@ impl<T> Arena<T> {
         self.entries[index] = Entry::Occupied { data, generation };
         self.len += 1;
 
-        ArenaId {
-            index,
-            generation,
-            _marker: PhantomData,
-        }
+        ArenaId { index, generation }
     }
 
     /// Returns a shared reference to the value identified by `id`.
@@ -206,7 +200,7 @@ impl<T> Arena<T> {
     /// arena.remove(id);
     /// assert_eq!(arena.get(id), None);
     /// ```
-    pub fn get(&self, id: ArenaId<T>) -> Option<&T> {
+    pub fn get(&self, id: ArenaId) -> Option<&T> {
         match &self.entries.get(id.index) {
             Some(Entry::Occupied { data, generation }) if *generation == id.generation => {
                 Some(data)
@@ -232,7 +226,7 @@ impl<T> Arena<T> {
     /// *arena.get_mut(id).unwrap() = 15;
     /// assert_eq!(arena.get(id), Some(&15));
     /// ```
-    pub fn get_mut(&mut self, id: ArenaId<T>) -> Option<&mut T> {
+    pub fn get_mut(&mut self, id: ArenaId) -> Option<&mut T> {
         match self.entries.get_mut(id.index) {
             Some(Entry::Occupied { data, generation }) if *generation == id.generation => {
                 Some(data)
@@ -265,7 +259,7 @@ impl<T> Arena<T> {
     /// assert_eq!(arena.get(old), None);
     /// assert_eq!(arena.get(renewed), Some(&"new"));
     /// ```
-    pub fn remove(&mut self, id: ArenaId<T>) -> Option<T> {
+    pub fn remove(&mut self, id: ArenaId) -> Option<T> {
         let entry = self.entries.get_mut(id.index)?;
 
         let current_gen = match entry {
@@ -360,11 +354,10 @@ impl<T> Default for Arena<T> {
 mod tests {
     use super::*;
 
-    fn stale_id() -> ArenaId<i32> {
+    fn stale_id() -> ArenaId {
         ArenaId {
             index: 99,
             generation: 0,
-            _marker: PhantomData,
         }
     }
 
