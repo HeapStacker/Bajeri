@@ -1,0 +1,18 @@
+[toolchain]
+channel = "stable"
+profile = "complete"
+
+targets = [
+    # --- Web ---
+    # "wasm32-unknown-unknown",  # WebAssembly
+
+    # --- Desktop ---
+    # "x86_64-pc-windows-msvc",  # Windows (64-bit)
+    # "x86_64-apple-darwin",     # macOS (Intel)
+    # "aarch64-apple-darwin",    # macOS (Apple Silicon M1/M2/M3/M4)
+    # "x86_64-unknown-linux-gnu",# Linux (Standard/Server)
+
+    # --- Mobile ---
+    # "aarch64-linux-android",   # Android (ARM64 - 95% of devices)
+    # "armv7-linux-androideabi", # Android (ARMv7 - older devices)
+]
