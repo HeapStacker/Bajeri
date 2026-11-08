@@ -5,5 +5,6 @@ edition = "2024"
 description = "Compact “arena” allocator for tackling more complex projects."
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/HeapStacker/Bajeri.git"
 
 [dependencies]

@@ -41,12 +41,13 @@ When I type`do push`, generate tests and documentation by following the instruct
 
 When I type `do publish`, generate tests and documentation by following the instructions in the file `info/generate_tests_docs.md`, and then execute the following commands:
 
-1. Replace any `[[...]]` placeholders in `README.md` (including the brackets) with actual project details. If none are found, leave the file unchanged.
-2. `cargo fmt`
-3. `just check` (must pass successfully)
-4. `git add .`
-5. `git commit -m "<appropriate short message>"`
-6. Read `version` from `Cargo.toml`.
-7. `git push`
-8. `git tag v<version>`
-9. `git push origin v<version>`
+1. Read the remote repository URL from `.git/config` and update the `repository` field under `[package]` in `Cargo.toml` with it.
+2. Replace any `[[...]]` placeholders in `README.md` (including the brackets) with actual project details. If none are found, leave the file unchanged.
+3. `cargo fmt`
+4. `just check` (must pass successfully)
+5. `git add .`
+6. `git commit -m "<appropriate short message>"`
+7. Read `version` from `Cargo.toml`.
+8. `git push`
+9. `git tag v<version>`
+10. `git push origin v<version>`
