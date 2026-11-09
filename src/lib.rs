@@ -6,6 +6,8 @@
 //!
 //! Start with [`Arena::new`].
 
+use std::any::Any;
+
 /// Handle for one value stored in an [`Arena`].
 ///
 /// The id stores two private facts. `index` is the slot inside the arena. `generation` is the
@@ -290,6 +292,32 @@ impl<T> Arena<T> {
         }
     }
 
+    /// Removes the value identified by `id` and reports whether it was present.
+    ///
+    /// This calls [`remove`](Self::remove) and drops the value instead of returning it. On success
+    /// the slot becomes free, its generation increases by one, and [`len`](Self::len) decreases by
+    /// one. A later [`insert`](Self::insert) may reuse the index. `id` itself no longer resolves.
+    ///
+    /// Returns `true` when a live value was removed. Returns `false` when `id` does not refer to a
+    /// live value, and in that case the arena is left unchanged. This method does not panic for a
+    /// live, stale, or unknown id. Incrementing the generation panics in debug builds if that
+    /// generation is already `u64::MAX`, the same as [`remove`](Self::remove).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bajeri::Arena;
+    ///
+    /// let mut arena = Arena::new();
+    /// let id = arena.insert("gone");
+    /// assert!(arena.delete(id));
+    /// assert!(!arena.delete(id));
+    /// assert!(arena.is_empty());
+    /// ```
+    pub fn delete(&mut self, id: ArenaId) -> bool {
+        self.remove(id).is_some()
+    }
+
     /// Returns how many values are currently stored.
     ///
     /// Values that were removed are not counted. This method does not panic and does not fail.
@@ -347,6 +375,102 @@ impl<T> Default for Arena<T> {
     /// ```
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Downcast helpers for an arena that stores type-erased values.
+///
+/// These methods exist only when the arena's value type is `Box<dyn Any>`. Each stored value is a
+/// boxed [`Any`]. [`get_as`](Self::get_as), [`get_mut_as`](Self::get_mut_as), and
+/// [`remove_as`](Self::remove_as) ask whether the value behind an id has concrete type `U`.
+/// `U` must be `'static` because that is what [`Any`] can recover.
+impl Arena<Box<dyn Any>> {
+    /// Returns a shared reference to the value behind `id` when that value is a `U`.
+    ///
+    /// `id` must come from an insert into this arena. The result is `Some` only when that slot is
+    /// still occupied by the same generation and the boxed value is a `U`.
+    ///
+    /// Returns `None` when the index is outside the arena, the slot is free, the generation does
+    /// not match, or the stored value is not a `U`. A type mismatch leaves the value stored.
+    /// This method does not panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bajeri::Arena;
+    ///
+    /// let mut arena = Arena::new();
+    /// let id = arena.insert(Box::new(7u32) as Box<dyn std::any::Any>);
+    /// assert_eq!(arena.get_as::<u32>(id), Some(&7));
+    /// assert_eq!(arena.get_as::<i32>(id), None);
+    /// assert_eq!(arena.get_as::<u32>(id), Some(&7));
+    /// ```
+    pub fn get_as<U: 'static>(&self, id: ArenaId) -> Option<&U> {
+        let boxed_any = self.get(id)?; // vraća &Box<dyn Any>
+
+        // Zahvaljujući deref koerciji, Box<dyn Any> se automatski pretvara u dyn Any
+        boxed_any.downcast_ref::<U>()
+    }
+
+    /// Returns a mutable reference to the value behind `id` when that value is a `U`.
+    ///
+    /// The conditions are the same as for [`get_as`](Self::get_as). Changing the referenced value
+    /// does not change the id and does not change the boxed type. Returns `None` for an unknown,
+    /// freed, stale, or wrong-type id. A type mismatch leaves the value stored. This method does
+    /// not panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bajeri::Arena;
+    ///
+    /// let mut arena = Arena::new();
+    /// let id = arena.insert(Box::new(7u32) as Box<dyn std::any::Any>);
+    /// *arena.get_mut_as::<u32>(id).unwrap() = 9;
+    /// assert_eq!(arena.get_as::<u32>(id), Some(&9));
+    /// ```
+    pub fn get_mut_as<U: 'static>(&mut self, id: ArenaId) -> Option<&mut U> {
+        let boxed_any = self.get_mut(id)?; // vraća &mut Box<dyn Any>
+
+        boxed_any.downcast_mut::<U>()
+    }
+
+    /// Removes the value behind `id` and returns it boxed when that value is a `U`.
+    ///
+    /// On a matching type this is [`remove`](Self::remove) followed by a downcast. The slot
+    /// becomes free, its generation increases by one, and [`len`](Self::len) decreases by one.
+    /// `id` no longer resolves. The returned box owns the `U`.
+    ///
+    /// Returns `None` when `id` does not refer to a live value. In that case the arena is left
+    /// unchanged.
+    ///
+    /// When the slot is live but the value is not a `U`, the value is still removed and then
+    /// dropped. The slot is free, `id` no longer resolves, and the result is `None`. The original
+    /// value is not put back.
+    ///
+    /// This method does not panic for a live, stale, unknown, or wrong-type id. Incrementing the
+    /// generation panics in debug builds if that generation is already `u64::MAX`, the same as
+    /// [`remove`](Self::remove).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bajeri::Arena;
+    ///
+    /// let mut arena = Arena::new();
+    /// let id = arena.insert(Box::new(7u32) as Box<dyn std::any::Any>);
+    /// let value = arena.remove_as::<u32>(id).unwrap();
+    /// assert_eq!(*value, 7);
+    /// assert!(arena.remove_as::<u32>(id).is_none());
+    ///
+    /// let other = arena.insert(Box::new("text") as Box<dyn std::any::Any>);
+    /// assert!(arena.remove_as::<u32>(other).is_none());
+    /// assert!(arena.is_empty());
+    /// ```
+    pub fn remove_as<U: 'static>(&mut self, id: ArenaId) -> Option<Box<U>> {
+        let boxed_any = self.remove(id)?;
+
+        boxed_any.downcast::<U>().ok()
     }
 }
 
@@ -474,6 +598,63 @@ mod tests {
         assert_eq!(arena.get(second), Some(&50));
         assert_eq!(arena.get(third), Some(&60));
         assert_eq!(arena.len(), 3);
+    }
+
+    #[test]
+    fn delete_removes_a_live_value_and_rejects_a_second_call() {
+        let mut arena = Arena::new();
+        let id = arena.insert("gone");
+        assert!(arena.delete(id));
+        assert_eq!(arena.get(id), None);
+        assert!(!arena.delete(id));
+        assert!(arena.is_empty());
+    }
+
+    #[test]
+    fn delete_of_an_unknown_id_leaves_the_arena_unchanged() {
+        let mut arena = Arena::new();
+        arena.insert(1);
+        assert!(!arena.delete(stale_id()));
+        assert_eq!(arena.len(), 1);
+    }
+
+    #[test]
+    fn get_as_returns_the_concrete_value_and_keeps_a_mismatched_value() {
+        let mut arena = Arena::new();
+        let id = arena.insert(Box::new(7u32) as Box<dyn Any>);
+        assert_eq!(arena.get_as::<u32>(id), Some(&7));
+        assert_eq!(arena.get_as::<i32>(id), None);
+        assert_eq!(arena.get_as::<u32>(id), Some(&7));
+        assert_eq!(arena.get_as::<u32>(stale_id()), None);
+    }
+
+    #[test]
+    fn get_mut_as_updates_the_concrete_value() {
+        let mut arena = Arena::new();
+        let id = arena.insert(Box::new(7u32) as Box<dyn Any>);
+        *arena.get_mut_as::<u32>(id).unwrap() = 9;
+        assert_eq!(arena.get_as::<u32>(id), Some(&9));
+        assert!(arena.get_mut_as::<i32>(id).is_none());
+        assert_eq!(arena.get_as::<u32>(id), Some(&9));
+    }
+
+    #[test]
+    fn remove_as_returns_the_boxed_value_and_invalidates_the_id() {
+        let mut arena = Arena::new();
+        let id = arena.insert(Box::new(7u32) as Box<dyn Any>);
+        let value = arena.remove_as::<u32>(id).unwrap();
+        assert_eq!(*value, 7);
+        assert!(arena.remove_as::<u32>(id).is_none());
+        assert!(arena.is_empty());
+    }
+
+    #[test]
+    fn remove_as_with_the_wrong_type_drops_the_stored_value() {
+        let mut arena = Arena::new();
+        let id = arena.insert(Box::new("text") as Box<dyn Any>);
+        assert!(arena.remove_as::<u32>(id).is_none());
+        assert!(arena.get(id).is_none());
+        assert!(arena.is_empty());
     }
 
     #[test]

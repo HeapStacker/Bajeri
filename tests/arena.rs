@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use bajeri::Arena;
 
 #[test]
@@ -33,6 +35,29 @@ fn an_id_from_one_arena_is_accepted_by_another() {
 
     assert_eq!(names.get(name), Some(&"wolf"));
     assert_eq!(numbers.get(name), Some(&7));
+}
+
+#[test]
+fn delete_and_downcast_use_the_public_api() {
+    let mut arena = Arena::new();
+    let kept = arena.insert("kept");
+    let dropped = arena.insert("dropped");
+    assert!(arena.delete(dropped));
+    assert!(!arena.delete(dropped));
+    assert_eq!(arena.get(kept), Some(&"kept"));
+
+    let mut erased = Arena::new();
+    let id = erased.insert(Box::new(7u32) as Box<dyn Any>);
+    assert_eq!(erased.get_as::<u32>(id), Some(&7));
+    assert_eq!(erased.get_as::<i32>(id), None);
+    *erased.get_mut_as::<u32>(id).unwrap() = 9;
+    let value = erased.remove_as::<u32>(id).unwrap();
+    assert_eq!(*value, 9);
+    assert!(erased.is_empty());
+
+    let wrong = erased.insert(Box::new("text") as Box<dyn Any>);
+    assert!(erased.remove_as::<u32>(wrong).is_none());
+    assert!(erased.is_empty());
 }
 
 #[test]
